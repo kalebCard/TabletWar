@@ -84,9 +84,9 @@ export class BoardScene extends Phaser.Scene {
 
     preload() {
         // Load assets
-        this.load.image('battlemat', '/assets/battlemat_topdown.png');
-        this.load.image('raw_token_imperium', '/assets/token_imperium.png');
-        this.load.image('raw_token_chaos', '/assets/token_chaos.png');
+        this.load.image('battlemat', (process.env.NEXT_PUBLIC_BASE_PATH || '') + '/assets/battlemat_topdown.png');
+        this.load.image('raw_token_imperium', (process.env.NEXT_PUBLIC_BASE_PATH || '') + '/assets/token_imperium.png');
+        this.load.image('raw_token_chaos', (process.env.NEXT_PUBLIC_BASE_PATH || '') + '/assets/token_chaos.png');
         
         // Load per-unit miniature images
         DATASHEETS.forEach(ds => {

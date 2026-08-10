@@ -59,7 +59,7 @@ export const DATASHEETS: Datasheet[] = [
     ],
     keywords: ["Infantry", "Character", "Captain"],
     abilities: ["Líder"],
-    image: "/assets/minis/mini_captain.png"
+    image: (process.env.NEXT_PUBLIC_BASE_PATH || '') + "/assets/minis/mini_captain.png"
   },
   {
     id: "ds-intercessors",
@@ -74,7 +74,7 @@ export const DATASHEETS: Datasheet[] = [
       { baseMm: 32, stats: { move: 6, toughness: 4, save: 3, wounds: 2, oc: 2, leadership: 6 }, weapons: [W.bolt_rifle(), W.fists()] }
     ],
     keywords: ["Infantry"],
-    image: "/assets/minis/mini_intercessors.png"
+    image: (process.env.NEXT_PUBLIC_BASE_PATH || '') + "/assets/minis/mini_intercessors.png"
   },
   {
     id: "ds-redemptor",
@@ -86,7 +86,7 @@ export const DATASHEETS: Datasheet[] = [
     ],
     keywords: ["Vehicle", "Walker"],
     abilities: ["Deadly Demise 1"],
-    image: "/assets/minis/mini_redemptor.png"
+    image: (process.env.NEXT_PUBLIC_BASE_PATH || '') + "/assets/minis/mini_redemptor.png"
   },
   {
     id: "ds-aggressors",
@@ -99,7 +99,7 @@ export const DATASHEETS: Datasheet[] = [
       { baseMm: 40, stats: { move: 5, toughness: 5, save: 3, wounds: 4, oc: 1, leadership: 6 }, weapons: [W.flamestorm(), W.power_fist()] }
     ],
     keywords: ["Infantry"],
-    image: "/assets/minis/mini_aggressors.png"
+    image: (process.env.NEXT_PUBLIC_BASE_PATH || '') + "/assets/minis/mini_aggressors.png"
   },
   // CHAOS
   {
@@ -112,7 +112,7 @@ export const DATASHEETS: Datasheet[] = [
     ],
     keywords: ["Infantry", "Character", "Chaos Lord"],
     abilities: ["Líder"],
-    image: "/assets/minis/mini_chaos_lord.png"
+    image: (process.env.NEXT_PUBLIC_BASE_PATH || '') + "/assets/minis/mini_chaos_lord.png"
   },
   {
     id: "ds-legionaries",
@@ -127,7 +127,7 @@ export const DATASHEETS: Datasheet[] = [
       { baseMm: 32, stats: { move: 6, toughness: 4, save: 3, wounds: 2, oc: 2, leadership: 6 }, weapons: [W.bolt_rifle(), W.chainsword()] }
     ],
     keywords: ["Infantry"],
-    image: "/assets/minis/mini_legionaries.png"
+    image: (process.env.NEXT_PUBLIC_BASE_PATH || '') + "/assets/minis/mini_legionaries.png"
   },
   {
     id: "ds-helbrute",
@@ -139,7 +139,7 @@ export const DATASHEETS: Datasheet[] = [
     ],
     keywords: ["Vehicle", "Walker"],
     abilities: ["Deadly Demise 1"],
-    image: "/assets/minis/mini_helbrute.png"
+    image: (process.env.NEXT_PUBLIC_BASE_PATH || '') + "/assets/minis/mini_helbrute.png"
   },
   {
     id: "ds-terminators",
@@ -154,7 +154,7 @@ export const DATASHEETS: Datasheet[] = [
       { baseMm: 40, stats: { move: 5, toughness: 5, save: 2, invuln: 4, wounds: 3, oc: 1, leadership: 6 }, weapons: [W.plasma(), W.power_fist()] }
     ],
     keywords: ["Infantry", "Terminator"],
-    image: "/assets/minis/mini_terminators.png"
+    image: (process.env.NEXT_PUBLIC_BASE_PATH || '') + "/assets/minis/mini_terminators.png"
   },
   {
     id: "ds-rhino",
@@ -166,7 +166,7 @@ export const DATASHEETS: Datasheet[] = [
     ],
     keywords: ["Vehicle", "Transport", "Dedicated Transport"],
     transportCapacity: 12,
-    image: "/assets/minis/mini_rhino.png"
+    image: (process.env.NEXT_PUBLIC_BASE_PATH || '') + "/assets/minis/mini_rhino.png"
   },
   {
     id: "ds-impulsor",
@@ -178,7 +178,7 @@ export const DATASHEETS: Datasheet[] = [
     ],
     keywords: ["Vehicle", "Transport", "Dedicated Transport"],
     transportCapacity: 6,
-    image: "/assets/minis/mini_impulsor.png"
+    image: (process.env.NEXT_PUBLIC_BASE_PATH || '') + "/assets/minis/mini_impulsor.png"
   }
 ]
 

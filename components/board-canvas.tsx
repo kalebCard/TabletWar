@@ -12,22 +12,22 @@ import {
 import { baseGap, dist, lineOfSight, type Pt } from "@/lib/game/geometry"
 
 const IMG_BATTLEMAT = typeof window !== 'undefined' ? new Image() : null
-if (IMG_BATTLEMAT) IMG_BATTLEMAT.src = '/assets/battlemat.png'
+if (IMG_BATTLEMAT) IMG_BATTLEMAT.src = (process.env.NEXT_PUBLIC_BASE_PATH || '') + '/assets/battlemat.png'
 
 const IMG_RUINS = typeof window !== 'undefined' ? new Image() : null
-if (IMG_RUINS) IMG_RUINS.src = '/assets/ruins.png'
+if (IMG_RUINS) IMG_RUINS.src = (process.env.NEXT_PUBLIC_BASE_PATH || '') + '/assets/ruins.png'
 
 const IMG_CRATER = typeof window !== 'undefined' ? new Image() : null
-if (IMG_CRATER) IMG_CRATER.src = '/assets/crater.png'
+if (IMG_CRATER) IMG_CRATER.src = (process.env.NEXT_PUBLIC_BASE_PATH || '') + '/assets/crater.png'
 
 const IMG_FOREST = typeof window !== 'undefined' ? new Image() : null
-if (IMG_FOREST) IMG_FOREST.src = '/assets/forest.png'
+if (IMG_FOREST) IMG_FOREST.src = (process.env.NEXT_PUBLIC_BASE_PATH || '') + '/assets/forest.png'
 
 const IMG_IMPERIUM = typeof window !== 'undefined' ? new Image() : null
-if (IMG_IMPERIUM) IMG_IMPERIUM.src = '/assets/token_imperium.png'
+if (IMG_IMPERIUM) IMG_IMPERIUM.src = (process.env.NEXT_PUBLIC_BASE_PATH || '') + '/assets/token_imperium.png'
 
 const IMG_CHAOS = typeof window !== 'undefined' ? new Image() : null
-if (IMG_CHAOS) IMG_CHAOS.src = '/assets/token_chaos.png'
+if (IMG_CHAOS) IMG_CHAOS.src = (process.env.NEXT_PUBLIC_BASE_PATH || '') + '/assets/token_chaos.png'
 
 type Tool = "select" | "measure"
 
