@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Futuristic Dark Background -->
+  <rect width="512" height="512" rx="120" fill="#090b0e" />
+  
+  <!-- Glowing Cyber Grid -->
+  <path d="M 100 0 L 100 512 M 200 0 L 200 512 M 300 0 L 300 512 M 400 0 L 400 512" stroke="#0ea5e9" stroke-width="4" opacity="0.2" />
+  <path d="M 0 100 L 512 100 M 0 200 L 512 200 M 0 300 L 512 300 M 0 400 L 512 400" stroke="#0ea5e9" stroke-width="4" opacity="0.2" />
+  
+  <!-- Sci-Fi Reticle / Star / Chainsword abstract -->
+  <g transform="translate(256, 256)">
+    <!-- 4-point star -->
+    <path d="M 0 -140 L 40 -40 L 140 0 L 40 40 L 0 140 L -40 40 L -140 0 L -40 -40 Z" fill="#0ea5e9" opacity="0.9" />
+    
+    <!-- Outer Ring -->
+    <circle cx="0" cy="0" r="90" fill="none" stroke="#38bdf8" stroke-width="12" stroke-dasharray="40 20" />
+    
+    <!-- Inner Core -->
+    <circle cx="0" cy="0" r="50" fill="#fff" />
+    
+    <!-- Center Eye -->
+    <circle cx="0" cy="0" r="20" fill="#090b0e" />
+    <circle cx="0" cy="0" r="8" fill="#facc15" />
+  </g>
+</svg>
