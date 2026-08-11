@@ -216,9 +216,10 @@ export default function Page() {
 
           {/* Floating Combat Panel */}
           {isCombatPhase && (
-            <div className="absolute top-28 sm:top-32 right-2 sm:right-4 z-40 w-full max-w-[340px] sm:max-w-[400px] max-h-[70vh] shadow-2xl rounded-xl overflow-hidden border border-white/20 bg-slate-950/95 backdrop-blur-md flex flex-col pointer-events-auto">
-              <div className="flex-shrink-0 flex items-center px-3 py-2 border-b border-white/10 bg-black/40">
+            <div className="absolute top-[45vh] sm:top-32 right-2 sm:right-4 z-40 w-[280px] sm:w-full sm:max-w-[400px] max-h-[40vh] sm:max-h-[70vh] shadow-2xl rounded-xl overflow-hidden border border-white/20 bg-slate-950/95 backdrop-blur-md flex flex-col pointer-events-auto">
+              <div className="flex-shrink-0 flex items-center justify-between px-3 py-2 border-b border-white/10 bg-black/40">
                 <span className="font-mono text-[10px] font-bold text-primary uppercase tracking-widest">Resolución de Combate</span>
+                <button onClick={() => engine.setCombatQueue([])} className="text-white/60 hover:text-white transition-colors text-xs font-bold w-6 h-6 rounded-full bg-white/5 hover:bg-white/20 flex items-center justify-center md:hidden">✕</button>
               </div>
               <div className="flex-1 overflow-y-auto custom-scrollbar">
                 <BatchCombatPanel
@@ -238,7 +239,7 @@ export default function Page() {
 
           {/* Floating Unit Panel */}
           {selected && engine.game.phase !== "roster" && (
-            <div className="absolute top-28 sm:top-32 left-2 sm:left-4 z-40 w-full max-w-[340px] sm:max-w-[400px] max-h-[70vh] shadow-2xl rounded-xl overflow-hidden border border-white/20 bg-slate-950/95 backdrop-blur-md flex flex-col pointer-events-auto">
+            <div className="absolute top-24 sm:top-32 left-2 sm:left-4 z-40 w-[280px] sm:w-full sm:max-w-[400px] max-h-[40vh] sm:max-h-[70vh] shadow-2xl rounded-xl overflow-hidden border border-white/20 bg-slate-950/95 backdrop-blur-md flex flex-col pointer-events-auto">
               <div className="flex-shrink-0 flex items-center justify-between px-3 py-2 border-b border-white/10 bg-black/40">
                 <span className="font-mono text-[10px] font-bold text-primary uppercase tracking-widest">Ficha de Unidad</span>
                 <button onClick={() => engine.setSelectedIds([])} className="text-white/60 hover:text-white transition-colors text-xs font-bold w-6 h-6 rounded-full bg-white/5 hover:bg-white/20 flex items-center justify-center">✕</button>
