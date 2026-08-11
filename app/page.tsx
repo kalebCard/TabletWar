@@ -217,7 +217,7 @@ export default function Page() {
 
           {/* Floating Combat Panel */}
           {isCombatPhase && (
-            <div className="absolute top-[45vh] sm:top-32 right-2 sm:right-4 z-40 w-[280px] sm:w-full sm:max-w-[400px] max-h-[40vh] sm:max-h-[70vh] shadow-2xl rounded-xl overflow-hidden border border-white/20 bg-slate-950/95 backdrop-blur-md flex flex-col pointer-events-auto">
+            <div className="hidden md:flex absolute top-[45vh] sm:top-32 right-2 sm:right-4 z-40 w-[280px] sm:w-full sm:max-w-[400px] max-h-[40vh] sm:max-h-[70vh] shadow-2xl rounded-xl overflow-hidden border border-white/20 bg-slate-950/95 backdrop-blur-md flex-col pointer-events-auto">
               <div className="flex-shrink-0 flex items-center justify-between px-3 py-2 border-b border-white/10 bg-black/40">
                 <span className="font-mono text-[10px] font-bold text-primary uppercase tracking-widest">Resolución de Combate</span>
                 <button onClick={() => engine.setCombatQueue([])} className="text-white/60 hover:text-white transition-colors text-xs font-bold w-6 h-6 rounded-full bg-white/5 hover:bg-white/20 flex items-center justify-center md:hidden">✕</button>
@@ -240,7 +240,7 @@ export default function Page() {
 
           {/* Floating Unit Panel */}
           {selected && engine.game.phase !== "roster" && (
-            <div className={`absolute top-24 sm:top-32 left-2 sm:left-4 z-40 w-[280px] sm:w-full sm:max-w-[400px] ${unitPanelExpanded ? 'max-h-[60vh]' : 'max-h-fit'} sm:max-h-[70vh] shadow-2xl rounded-xl overflow-hidden border border-white/20 bg-slate-950/95 backdrop-blur-md flex flex-col pointer-events-auto transition-all duration-300`}>
+            <div className={`hidden md:flex absolute top-24 sm:top-32 left-2 sm:left-4 z-40 w-[280px] sm:w-full sm:max-w-[400px] ${unitPanelExpanded ? 'max-h-[60vh]' : 'max-h-fit'} sm:max-h-[70vh] shadow-2xl rounded-xl overflow-hidden border border-white/20 bg-slate-950/95 backdrop-blur-md flex-col pointer-events-auto transition-all duration-300`}>
               <div className="flex-shrink-0 flex items-center justify-between px-3 py-2 border-b border-white/10 bg-black/40">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-[10px] font-bold text-primary uppercase tracking-widest">Ficha</span>
@@ -314,7 +314,48 @@ export default function Page() {
                   ✕
                 </button>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto p-1">{sidebar}</div>
+              <div className="min-h-0 flex-1 overflow-y-auto p-1">
+                {sidebar}
+                {engine.game.phase !== "deployment" && (
+                  <div className="flex flex-col gap-4 p-2">
+                    {selected && engine.game.phase !== "roster" && (
+                      <div className="rounded-xl overflow-hidden border border-white/20 bg-slate-950 shadow-lg flex flex-col pointer-events-auto">
+                        <div className="bg-black/40 px-3 py-2 border-b border-white/10 flex justify-between items-center">
+                          <span className="font-mono text-[10px] font-bold text-primary uppercase tracking-widest">Ficha de Unidad</span>
+                        </div>
+                        <div className="flex-1">
+                          <UnitPanel token={selected} unit={selectedUnit} onWound={engine.wound} phase={engine.game.phase} onAdvance={engine.doAdvanceUnit} onFallBack={engine.doFallBackUnit} onMicroMove={engine.doMicroMove} onEmbark={engine.doEmbark} onDisembark={engine.doDisembark} microMoveMode={engine.microMoveMode} inEngagementRange={inEngagementRange} canEmbark={canEmbark} activePlayer={engine.game.activePlayer} />
+                        </div>
+                      </div>
+                    )}
+                    {isCombatPhase && (
+                      <div className="rounded-xl overflow-hidden border border-white/20 bg-slate-950 shadow-lg flex flex-col pointer-events-auto">
+                        <div className="bg-black/40 px-3 py-2 border-b border-white/10">
+                          <span className="font-mono text-[10px] font-bold text-primary uppercase tracking-widest">Resolución de Combate</span>
+                        </div>
+                        <div className="flex-1">
+                          <BatchCombatPanel
+                            tokens={engine.tokens}
+                            units={engine.units}
+                            terrain={terrain}
+                            phase={engine.game.phase}
+                            queue={engine.combatQueue}
+                            onUpdateWeapon={engine.updateQueuedAttackWeapon}
+                            onRemoveFromQueue={engine.removeAttack}
+                            onResolveBatch={engine.resolveBatchAttacks}
+                            onCancel={() => engine.setCombatQueue([])}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    {!selected && !isCombatPhase && engine.game.phase !== "roster" && (
+                      <div className="p-4 text-center text-muted-foreground text-sm font-sans">
+                        Selecciona una unidad para ver su ficha.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -362,12 +403,16 @@ export default function Page() {
         )}
 
         {/* Panel Drawer Toggle (FAR RIGHT) */}
-        {sidebar && (
+        {(sidebar || selected || isCombatPhase) && engine.game.phase !== "roster" && (
           <button
             onClick={() => setMobileOpen(true)}
-            className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/10 px-2.5 py-2 font-mono text-[10px] font-bold uppercase tracking-wider text-foreground shrink-0"
+            className={`flex items-center gap-1 rounded-lg border px-2.5 py-2 font-mono text-[10px] font-bold uppercase tracking-wider shrink-0 transition-colors ${
+              selected || isCombatPhase 
+                ? "border-primary/50 bg-primary/20 text-primary animate-pulse" 
+                : "border-white/10 bg-white/10 text-foreground"
+            }`}
           >
-            <span>📋 Panel</span>
+            <span>{isCombatPhase ? "⚔ Combate" : selected ? "📋 Ficha" : "📋 Panel"}</span>
           </button>
         )}
       </div>
