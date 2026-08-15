@@ -15,8 +15,15 @@ Una simulación interactiva de batallas de mesa ambientada en el universo de War
 
 - **Frontend**: Next.js (App Router), React, TailwindCSS, shadcn/ui.
 - **Motor Gráfico**: Phaser 3 (Manejo del mapa y sprites isométricos).
-- **Físicas / Animaciones**: React Spring, framer-motion (para UI) y motor interno de Phaser.
-- **Gestión de Estado**: Custom Hooks (`useGameEngine`) junto a una arquitectura de Eventos para comunicar React y Phaser.
+- **Físicas / Animaciones**: Físicas customizadas, animaciones 3D.
+- **Gestión de Estado**: Zustand (`useGameStore`, `useUIStore`) para una comunicación fluida y reactiva entre la UI (React) y el Canvas (Phaser).
+
+## Arquitectura de Software
+
+El proyecto sigue una arquitectura altamente modular centrada en principios **SOLID**:
+- **Desacoplamiento del Motor y UI**: React renderiza la interfaz y paneles lógicos (como los cálculos de combate aislados en hooks propios) mientras Phaser se dedica al renderizado. Ambos se comunican mediante Eventos y el estado global de Zustand.
+- **Managers Específicos**: El 'God Object' `BoardScene` fue refactorizado dividiendo responsabilidades en clases concretas (`TerrainRenderer`, `TokenRenderer`, `CameraManager`, `InteractionManager` y `PhysicsManager`).
+- **Lógica de Combate**: El panel de combate separa limpiamente la capa visual de React de la compleja lógica de negocio de Warhammer 40k usando el hook `useCombatCalculations`.
 
 ## Requisitos
 

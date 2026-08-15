@@ -1,6 +1,7 @@
 import type { Terrain, Token, Weapon } from "./types"
 import { ENGAGEMENT_RANGE_IN } from "./constants"
 import { baseGap, lineOfSight, pointInPolygon, segmentCrossesPolygon, type Pt } from "./geometry"
+import { classify, countSuccesses, type Die } from "./dice"
 
 /**
  * Wound roll target (roll >= target) comparing weapon Strength vs defender Toughness.
@@ -144,4 +145,89 @@ export function apLabel(ap: number): string {
 
 export function skillLabel(skill: number): string {
   return `${skill}+`
+}
+
+export interface HitResolution {
+  hitsToRollWoundsFor: number
+  autoWounds: number
+}
+
+export function resolveHits(
+  hitDice: Die[],
+  actualSkill: number,
+  abilities: string[] = []
+): HitResolution {
+  const hasLethalHits = abilities.includes("Impactos Letales")
+  const hasSustainedHits = abilities.some((a) => a.startsWith("Impactos Sostenidos"))
+  const sustainedValue = hasSustainedHits 
+    ? parseInt(abilities.find((a) => a.startsWith("Impactos Sostenidos"))?.split(" ")[2] || "1") 
+    : 1
+
+  let hitsToRollWoundsFor = 0
+  let autoWounds = 0
+
+  hitDice.forEach((d) => {
+    const c = classify(d.value, actualSkill)
+    if (c.crit6) {
+      if (hasLethalHits) autoWounds++
+      else hitsToRollWoundsFor++
+
+      if (hasSustainedHits) hitsToRollWoundsFor += sustainedValue
+    } else if (c.success) {
+      hitsToRollWoundsFor++
+    }
+  })
+
+  return { hitsToRollWoundsFor, autoWounds }
+}
+
+export interface WoundResolution {
+  normalWounds: number
+  devWounds: number
+}
+
+export function resolveWounds(
+  woundDice: Die[],
+  woundTgt: number,
+  abilities: string[] = []
+): WoundResolution {
+  const hasDevastatingWounds = abilities.includes("Heridas Devastadoras")
+
+  let normalWounds = 0
+  let devWounds = 0
+
+  woundDice.forEach((d) => {
+    const c = classify(d.value, woundTgt)
+    if (c.crit6) {
+      if (hasDevastatingWounds) devWounds++
+      else normalWounds++
+    } else if (c.success) {
+      normalWounds++
+    }
+  })
+
+  return { normalWounds, devWounds }
+}
+
+export interface DamageResolution {
+  finalDamage: number
+  ignoredDamage: number
+}
+
+export function resolveDamage(
+  unsavedWounds: number,
+  damagePerWound: number,
+  fnpDice: Die[],
+  fnpTgt: number | null
+): DamageResolution {
+  const totalDamageBeforeFnp = unsavedWounds * damagePerWound
+  
+  if (fnpTgt === null || fnpDice.length === 0) {
+    return { finalDamage: totalDamageBeforeFnp, ignoredDamage: 0 }
+  }
+
+  const ignoredDamage = countSuccesses(fnpDice, fnpTgt)
+  const finalDamage = Math.max(0, totalDamageBeforeFnp - ignoredDamage)
+
+  return { finalDamage, ignoredDamage }
 }

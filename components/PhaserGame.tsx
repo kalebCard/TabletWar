@@ -4,35 +4,34 @@ import React, { useEffect, useRef } from 'react';
 import Phaser from 'phaser';
 import { BoardScene } from '@/lib/game/BoardScene';
 import { EventBus } from '@/lib/game/EventBus';
+import { useGameStore } from '@/lib/store/gameStore';
+import { useUIStore } from '@/lib/store/uiStore';
 
-export default function PhaserGame({ 
-  tokens, 
-  units,
-  terrain, 
-  game,
-  deployingUnitId,
-  onSelect,
-  onMoveTokens,
-  onMoveTerrain,
-  onDeployUnit,
-  onQueueAttack,
-  combatQueue,
-  selectedIds
-}: { 
-  tokens: any, 
-  units?: any[],
-  terrain: any, 
-  game: any,
-  deployingUnitId?: string | null,
+export interface PhaserGameProps {
   onSelect: React.Dispatch<React.SetStateAction<string[]>>
   onMoveTokens: (moves: { id: string, x: number, y: number }[]) => void
   onMoveTerrain?: (moves: { id: string, dx: number, dy: number }[]) => void
   onDeployUnit?: (id: string, x: number, y: number) => void
   onQueueAttack?: (attackerId: string, targetId: string) => void
-  combatQueue?: any[]
-  selectedIds?: string[]
-}) {
+}
+
+export default function PhaserGame({
+  onSelect,
+  onMoveTokens,
+  onMoveTerrain,
+  onDeployUnit,
+  onQueueAttack,
+}: PhaserGameProps) {
   const gameRef = useRef<Phaser.Game | null>(null);
+  
+  // Connect directly to the store for state sync instead of relying on React props
+  const tokens = useGameStore(state => state.tokens);
+  const units = useGameStore(state => state.units);
+  const terrain = useGameStore(state => state.terrainState);
+  const game = useGameStore(state => state.game);
+  const deployingUnitId = useUIStore(state => state.deployingUnitId);
+  const combatQueue = useUIStore(state => state.combatQueue);
+  const selectedIds = useUIStore(state => state.selectedIds);
 
   useEffect(() => {
     // Safely wrap releasePointerCapture to prevent devtools multi-touch errors
@@ -91,50 +90,40 @@ export default function PhaserGame({
   }, []);
 
   // Use a ref to access latest props in event listeners
-  const stateRef = useRef({ game, deployingUnitId, onSelect, onMoveTokens, onMoveTerrain, onDeployUnit, onQueueAttack });
+  const callbacksRef = useRef({ onSelect, onMoveTokens, onMoveTerrain, onDeployUnit, onQueueAttack });
+  const stateRef = useRef({ game, deployingUnitId });
   
   // Update refs without re-rendering
   useEffect(() => {
-    stateRef.current = { game, deployingUnitId, onSelect, onMoveTokens, onMoveTerrain, onDeployUnit, onQueueAttack };
-  }, [game, deployingUnitId, onSelect, onMoveTokens, onMoveTerrain, onDeployUnit, onQueueAttack]);
+    callbacksRef.current = { onSelect, onMoveTokens, onMoveTerrain, onDeployUnit, onQueueAttack };
+  }, [onSelect, onMoveTokens, onMoveTerrain, onDeployUnit, onQueueAttack]);
 
-  // Sync React State to Phaser Scene
   useEffect(() => {
-    EventBus.emit('sync-state', { tokens, terrain, game, combatQueue, units, deployingUnitId, selectedIds });
-  }, [tokens, terrain, game, combatQueue, units, deployingUnitId, selectedIds]);
-
-  // Re-sync when scene is fully ready
-  useEffect(() => {
-    const handleSceneReady = () => {
-      EventBus.emit('sync-state', { tokens, terrain, game, combatQueue, units, deployingUnitId, selectedIds });
-    };
-    EventBus.on('scene-ready', handleSceneReady);
-    return () => {
-      EventBus.off('scene-ready', handleSceneReady);
-    };
-  }, [tokens, terrain, game, combatQueue, units, deployingUnitId]);
+    stateRef.current = { game, deployingUnitId };
+  }, [game, deployingUnitId]);
 
   // Handle incoming events from Phaser
   useEffect(() => {
     const handleSelect = (selectedIds: string[]) => {
-      stateRef.current.onSelect(selectedIds);
+      callbacksRef.current.onSelect(selectedIds);
     };
     const handleToggleSelect = (tokenId: string) => {
-      stateRef.current.onSelect((prev: any) => {
+      callbacksRef.current.onSelect((prev: any) => {
         const arr = Array.isArray(prev) ? prev : [];
         return arr.includes(tokenId) ? arr.filter((x: string) => x !== tokenId) : [...arr, tokenId];
       });
     };
     const handleMove = (moves: { id: string, x: number, y: number, z?: number }[]) => {
-      onMoveTokens(moves);
+      callbacksRef.current.onMoveTokens(moves);
     };
     const handleMoveTerrain = (moves: { id: string, dx: number, dy: number }[]) => {
-      if (stateRef.current.onMoveTerrain) {
-        stateRef.current.onMoveTerrain(moves);
+      if (callbacksRef.current.onMoveTerrain) {
+        callbacksRef.current.onMoveTerrain(moves);
       }
     };
     const handleMapClick = (worldPt: {x: number, y: number}) => {
-      const { game, deployingUnitId, onDeployUnit, onSelect } = stateRef.current;
+      const { onDeployUnit, onSelect } = callbacksRef.current;
+      const { game, deployingUnitId } = stateRef.current;
       if (game.phase === 'deployment' && deployingUnitId && onDeployUnit) {
         EventBus.emit('animate-teleport', { x: worldPt.x, y: worldPt.y });
         onDeployUnit(deployingUnitId, worldPt.x, worldPt.y);
@@ -143,8 +132,8 @@ export default function PhaserGame({
       }
     };
     const handleQueueAttack = (data: { attackerId: string, targetId: string }) => {
-      if (stateRef.current.onQueueAttack) {
-        stateRef.current.onQueueAttack(data.attackerId, data.targetId);
+      if (callbacksRef.current.onQueueAttack) {
+        callbacksRef.current.onQueueAttack(data.attackerId, data.targetId);
       }
     };
     
@@ -163,7 +152,7 @@ export default function PhaserGame({
       EventBus.off('ui-map-click', handleMapClick);
       EventBus.off('ui-queue-attack', handleQueueAttack);
     }
-  }, [onMoveTokens]);
+  }, []);
 
   return (
     <div className="relative w-full h-full">

@@ -3,25 +3,28 @@ import { EventBus } from './EventBus';
 import { BOARD_WIDTH_IN, BOARD_HEIGHT_IN, DATASHEETS } from './constants';
 import { GameState, Token, Terrain, Unit } from './types';
 import { getObjectivesForLayout } from './constants';
+import { CameraManager } from './rendering/managers/CameraManager';
+import { TokenRenderer } from './rendering/managers/TokenRenderer';
+import { TerrainRenderer } from './rendering/managers/TerrainRenderer';
+import { InputManager } from './scene/InputManager';
+import { InteractionManager } from './scene/InteractionManager';
+import { useGameStore } from '../store/gameStore';
+import { useUIStore } from '../store/uiStore';
 
-function pointInPolygon(point: {x: number, y: number}, polygon: {x: number, y: number}[]) {
-    let isInside = false;
-    let i = 0, j = polygon.length - 1;
-    for (; i < polygon.length; j = i++) {
-        if ( (polygon[i].y > point.y) != (polygon[j].y > point.y) &&
-             point.x < (polygon[j].x - polygon[i].x) * (point.y - polygon[i].y) / (polygon[j].y - polygon[i].y) + polygon[i].x ) {
-            isInside = !isInside;
-        }
-    }
-    return isInside;
-}
+import { PhysicsManager } from './rendering/managers/PhysicsManager';
 
 export class BoardScene extends Phaser.Scene {
-    private gridWidth = 60;
-    private gridHeight = 44;
-    private tileWidth = 32; // scale factor for X
-    private tileHeight = 16; // scale factor for Y
+    public gridWidth = 60;
+    public gridHeight = 44;
+    public tileWidth = 32; // scale factor for X
+    public tileHeight = 16; // scale factor for Y
     
+    public cameraManager!: CameraManager;
+    public tokenRenderer!: TokenRenderer;
+    public terrainRenderer!: TerrainRenderer;
+    public inputManager!: InputManager;
+    public interactionManager!: InteractionManager;
+
     // 3D Camera Rotation (Yaw) & Smoothing Targets
     public cameraYaw = 0;
     public targetScrollX = 0;
@@ -30,14 +33,14 @@ export class BoardScene extends Phaser.Scene {
     public targetYaw = 0;
 
     // Game state references
-    private gameState: GameState | null = null;
-    private tokens: Token[] = [];
-    private units: Unit[] = [];
-    private terrain: Terrain[] = [];
-    private combatQueue: any[] = [];
+    public gameState: GameState | null = null;
+    public tokens: Token[] = [];
+    public units: Unit[] = [];
+    public terrain: Terrain[] = [];
+    public combatQueue: any[] = [];
     
     // Phaser groups
-    private tokenSprites!: Phaser.GameObjects.Group;
+    public tokenSprites!: Phaser.GameObjects.Group;
     private terrainGraphicsMap: Map<string, { back: Phaser.GameObjects.Graphics, front: Phaser.GameObjects.Graphics, max_sy: number, height: number }> = new Map();
     private shadowGraphics: Phaser.GameObjects.Graphics | null = null;
     private gridGraphics: Phaser.GameObjects.Graphics | null = null;
@@ -62,21 +65,18 @@ export class BoardScene extends Phaser.Scene {
     private ghostContainer: Phaser.GameObjects.Container | null = null;
     private deployingUnitId: string | null = null;
     private hoverTimer: number = 0;
-    private selectedIds: string[] = [];
+    public selectedIds: string[] = [];
     
     // Multi-dragging
-    private dragGroup: { sprite: Phaser.GameObjects.Sprite, startWorldX: number, startWorldY: number, startZ: number }[] | null = null;
-    private isMeasuringMode = false;
-    private isMultiSelectMode = false;
-    private prevPhase: string | null = null;
-
-    // Keys
-    private keyQ?: Phaser.Input.Keyboard.Key;
-    private keyE?: Phaser.Input.Keyboard.Key;
-    private keyW?: Phaser.Input.Keyboard.Key;
-    private keyA?: Phaser.Input.Keyboard.Key;
-    private keyS?: Phaser.Input.Keyboard.Key;
-    private keyD?: Phaser.Input.Keyboard.Key;
+    public dragGroup: { sprite: Phaser.GameObjects.Sprite, startWorldX: number, startWorldY: number, startZ: number }[] | null = null;
+    public isMeasuringMode = false;
+    public isMultiSelectMode = false;
+    public prevPhase: string | null = null;
+    
+    public keyW?: Phaser.Input.Keyboard.Key;
+    public keyA?: Phaser.Input.Keyboard.Key;
+    public keyS?: Phaser.Input.Keyboard.Key;
+    public keyD?: Phaser.Input.Keyboard.Key;
 
     constructor() {
         super('BoardScene');
@@ -97,19 +97,22 @@ export class BoardScene extends Phaser.Scene {
     }
 
     create() {
+        this.tokenRenderer = new TokenRenderer(this);
+        this.terrainRenderer = new TerrainRenderer(this);
+
         // Pre-process green screen images to create transparent tokens
-        this.createTransparentTexture('raw_token_imperium', 'token_imperium');
-        this.createTransparentTexture('raw_token_chaos', 'token_chaos');
+        this.tokenRenderer.createTransparentTexture('raw_token_imperium', 'token_imperium');
+        this.tokenRenderer.createTransparentTexture('raw_token_chaos', 'token_chaos');
         
         // Pre-process miniature images
         DATASHEETS.forEach(ds => {
             if (ds.image) {
-                this.createTransparentTexture(`raw_mini_${ds.id}`, `mini_${ds.id}`);
+                this.tokenRenderer.createTransparentTexture(`raw_mini_${ds.id}`, `mini_${ds.id}`);
             }
         });
         
         // Generate simple ambient noise texture
-        this.generateNoiseTexture();
+        this.terrainRenderer.generateNoiseTexture();
 
         // Center camera
         this.cameras.main.setBackgroundColor('#050114');
@@ -134,25 +137,29 @@ export class BoardScene extends Phaser.Scene {
         this.matContainer.add(this.matImage);
 
         // Draw Isometric Grid Base
-        this.drawGrid();
+        this.terrainRenderer.drawGrid();
 
         this.tokenSprites = this.add.group();
 
-        // Listen for React updates
-        EventBus.on('sync-state', (state: { game: GameState, tokens: Token[], units?: Unit[], terrain: Terrain[], combatQueue?: any[], deployingUnitId?: string | null, selectedIds?: string[] }) => {
-            const prevPhase = this.prevPhase;
-            const prevLayout = this.gameState?.terrainLayout;
+
+        this.cameraManager = new CameraManager(this);
+
+        if (this.input && this.input.keyboard) {
+            this.keyW = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W);
+            this.keyA = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A);
+            this.keyS = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S);
+            this.keyD = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D);
+        }
+
+        // Listen for React updates via Zustand
+        useGameStore.subscribe((state, prevState) => {
+            const prevLayout = prevState?.game?.terrainLayout;
+            const prevPhase = prevState?.game?.phase;
             this.gameState = state.game;
-            this.selectedIds = state.selectedIds || [];
             this.prevPhase = state.game.phase;
             this.tokens = state.tokens;
             this.units = state.units || [];
-            this.terrain = state.terrain;
-            this.combatQueue = state.combatQueue || [];
-            this.deployingUnitId = state.deployingUnitId || null;
-            if (!this.deployingUnitId && this.ghostContainer) {
-                this.ghostContainer.setVisible(false);
-            }
+            this.terrain = state.terrainState;
             
             const isCombatPatrol = state.game.terrainLayout === 'combat-patrol';
             const targetWidth = isCombatPatrol ? 44 : 60;
@@ -167,17 +174,25 @@ export class BoardScene extends Phaser.Scene {
                 }
                 this.updateBoardRender();
             } else {
-                // Only do standard redraws if layout didn't change (updateBoardRender handles these otherwise)
-                this.redrawTerrain();
+                // Only do standard redraws if layout didn't change
+                this.terrainRenderer.redrawTerrain();
                 this.drawDeploymentZones();
                 this.drawObjectives();
             }
 
-            // Deployment intro animation when transitioning from roster to deployment
             if (prevPhase === 'roster' && state.game.phase === 'deployment') {
                 this.playDeploymentIntroAnimation();
             }
-            this.redrawTokens();
+            this.tokenRenderer.renderTokens();
+        });
+
+        useUIStore.subscribe((state) => {
+            this.selectedIds = state.selectedIds || [];
+            this.combatQueue = state.combatQueue || [];
+            this.deployingUnitId = state.deployingUnitId || null;
+            if (!this.deployingUnitId && this.ghostContainer) {
+                this.ghostContainer.setVisible(false);
+            }
         });
 
         EventBus.on('sync-ui-modes', (data: { isMeasuring?: boolean, isMultiSelectMode?: boolean }) => {
@@ -189,297 +204,14 @@ export class BoardScene extends Phaser.Scene {
             }
         });
 
-        // Disable context menu so right click panning works smoothly
-        this.input.mouse?.disableContextMenu();
-        this.measurementLine = this.add.graphics();
-        this.measurementLine.setDepth(9999);
-        
-        this.queuedAttackLines = this.add.graphics();
-        this.queuedAttackLines.setDepth(9998);
-        
-        this.measurementText = this.add.text(0, 0, '', {
-            fontFamily: 'monospace',
-            fontSize: '16px',
-            color: '#00ff00',
-            backgroundColor: '#000000AA',
-            padding: { x: 6, y: 4 }
-        });
-        this.measurementText.setDepth(10000);
-        this.measurementText.setVisible(false);
+        this.interactionManager = new InteractionManager(this);
+        this.interactionManager.setupInteractions();
 
-        // Handle Map Clicks
-        this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-            if (pointer.leftButtonDown() && pointer.event?.ctrlKey) {
-                this.measureStartWorld = this.getWorldPoint(pointer.worldX, pointer.worldY);
-            }
-            if (pointer.leftButtonDown() && pointer.event?.shiftKey) {
-                this.marqueeStartWorld = { x: pointer.worldX, y: pointer.worldY };
-            }
-        });
 
-        this.input.on('pointerup', (pointer: Phaser.Input.Pointer, gameObjects: Phaser.GameObjects.GameObject[]) => {
-            if (this.draggingTerrain) {
-                const currentWorld = this.getWorldPoint(pointer.worldX, pointer.worldY);
-                const startWorld = this.getWorldPoint(this.draggingTerrain.startWorldX, this.draggingTerrain.startWorldY);
-                const dx = currentWorld.x - startWorld.x;
-                const dy = currentWorld.y - startWorld.y;
-                EventBus.emit('ui-move-terrain', [{ id: this.draggingTerrain.id, dx, dy }]);
-                this.draggingTerrain = null;
-                return;
-            }
+        this.inputManager = new InputManager(this);
+        this.inputManager.setupInput();
 
-            if (this.measureStartWorld) {
-                this.measureStartWorld = null;
-                this.measurementLine?.clear();
-                this.measurementText?.setVisible(false);
-            }
-
-            if (this.marqueeStartWorld) {
-                const dist = Math.hypot(pointer.worldX - this.marqueeStartWorld.x, pointer.worldY - this.marqueeStartWorld.y);
-                if (dist > 10) {
-                    const rect = new Phaser.Geom.Rectangle(
-                        Math.min(this.marqueeStartWorld.x, pointer.worldX),
-                        Math.min(this.marqueeStartWorld.y, pointer.worldY),
-                        Math.abs(pointer.worldX - this.marqueeStartWorld.x),
-                        Math.abs(pointer.worldY - this.marqueeStartWorld.y)
-                    );
-                    
-                    const selectedIds: string[] = [];
-                    this.tokenSprites.getChildren().forEach((child) => {
-                        const sprite = child as Phaser.GameObjects.Sprite;
-                        if (Phaser.Geom.Rectangle.Contains(rect, sprite.x, sprite.y)) {
-                            selectedIds.push(sprite.getData('tokenId'));
-                        }
-                    });
-                    
-                    if (selectedIds.length > 0) {
-                        EventBus.emit('ui-select', selectedIds);
-                    }
-                }
-                this.marqueeStartWorld = null;
-                this.marqueeGraphics.clear();
-            }
-
-            if (pointer.rightButtonReleased() || pointer.middleButtonReleased()) return;
-            // Check if it was a click and not a drag (increase threshold for mobile touch taps)
-            const tapThreshold = pointer.wasTouch ? 15 : 5;
-            if (Math.abs(pointer.downX - pointer.upX) < tapThreshold && Math.abs(pointer.downY - pointer.upY) < tapThreshold) {
-                if (gameObjects.length === 0) {
-                    const worldPt = this.getWorldPoint(pointer.worldX, pointer.worldY);
-                    EventBus.emit('ui-map-click', worldPt);
-                }
-            }
-        });
-
-        // Multi-touch support for mobile devices
-        this.input.addPointer(2);
-
-        // Track last pinch distance and angle for 2-finger mobile zoom, pan & twist rotation
-        let lastMid: { x: number, y: number } | null = null;
-        let lastPinchDist = 0;
-        let lastPinchAngle = 0;
-
-        // Setup camera controls
-        this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
-            // 2-finger touch gesture: Zoom, Pan & Twist Rotation for mobile
-            if (this.input.pointer1.isDown && this.input.pointer2.isDown) {
-                const p1 = this.input.pointer1;
-                const p2 = this.input.pointer2;
-
-                const currentMidX = (p1.x + p2.x) / 2;
-                const currentMidY = (p1.y + p2.y) / 2;
-                const currentDist = Phaser.Math.Distance.Between(p1.x, p1.y, p2.x, p2.y);
-                const currentAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
-
-                if (lastMid && lastPinchDist > 0) {
-                    // 1. Pan movement using exact midpoint difference
-                    const midDx = (currentMidX - lastMid.x) / this.cameras.main.zoom;
-                    const midDy = (currentMidY - lastMid.y) / this.cameras.main.zoom;
-                    this.cameras.main.scrollX -= midDx;
-                    this.cameras.main.scrollY -= midDy;
-
-                    // 2. Pinch distance for Zoom
-                    const distDiff = currentDist - lastPinchDist;
-                    if (Math.abs(distDiff) > 1.0) {
-                        const zoomDelta = distDiff * 0.003;
-                        const newZoom = Phaser.Math.Clamp(this.cameras.main.zoom + zoomDelta, 0.3, 3);
-                        this.cameras.main.setZoom(newZoom);
-                    }
-
-                    // 3. Twist Angle for 3D Isometric Camera Rotation
-                    if (lastPinchAngle !== 0) {
-                        let angleDelta = currentAngle - lastPinchAngle;
-                        if (angleDelta > Math.PI) angleDelta -= Math.PI * 2;
-                        if (angleDelta < -Math.PI) angleDelta += Math.PI * 2;
-
-                        if (Math.abs(angleDelta) > 0.02) {
-                            this.rotateCamera(angleDelta);
-                        }
-                    }
-                }
-
-                lastMid = { x: currentMidX, y: currentMidY };
-                lastPinchDist = currentDist;
-                lastPinchAngle = currentAngle;
-                return;
-            } else {
-                lastMid = null;
-                lastPinchDist = 0;
-                lastPinchAngle = 0;
-            }
-
-            // Update Translucent Ghost Silhouette Preview during deployment
-            if (this.deployingUnitId) {
-                // pointer.worldX/y are screen coords relative to the canvas — use those directly
-                // getWorldPoint() expects screen-space coords, so pass pointer.worldX/y (not worldX/Y)
-                const screenX = pointer.worldX;
-                const screenY = pointer.worldY;
-                const worldPt = this.getWorldPoint(screenX, screenY);
-                const el = this.getElevationInfo(worldPt.x, worldPt.y);
-                // Ghost sits exactly at the pointer screen position
-                const sx = screenX;
-                const sy = screenY;
-
-                if (!this.ghostContainer && this.add) {
-                    this.ghostContainer = this.add.container(sx, sy);
-                    this.ghostContainer.setDepth(995);
-
-                    const circleG = this.add.graphics();
-                    circleG.fillStyle(0x00f2fe, 0.35);
-                    circleG.lineStyle(2, 0x00f2fe, 0.9);
-
-                    const segments = 24;
-                    const r = 1.0;
-                    circleG.beginPath();
-                    for (let i = 0; i <= segments; i++) {
-                        const angle = (i / segments) * Math.PI * 2;
-                        const px = Math.cos(angle) * r;
-                        const py = Math.sin(angle) * r;
-                        const rad = this.cameraYaw || 0;
-                        const ix = px * Math.cos(rad) - py * Math.sin(rad);
-                        const iy = (px * Math.sin(rad) + py * Math.cos(rad)) * 0.5;
-                        if (i === 0) circleG.moveTo(ix, iy);
-                        else circleG.lineTo(ix, iy);
-                    }
-                    circleG.closePath();
-                    circleG.fill();
-                    circleG.stroke();
-
-                    const ghostText = this.add.text(0, -25, "DESPLEGAR", {
-                        fontFamily: 'monospace',
-                        fontSize: '11px',
-                        fontStyle: 'bold',
-                        color: '#00f2fe',
-                        backgroundColor: '#000000AA',
-                        padding: { x: 4, y: 2 }
-                    });
-                    ghostText.setOrigin(0.5);
-
-                    this.ghostContainer.add([circleG, ghostText]);
-                } else if (this.ghostContainer) {
-                    this.ghostContainer.setPosition(sx, sy);
-                    this.ghostContainer.setVisible(true);
-                }
-            } else if (this.ghostContainer) {
-                this.ghostContainer.setVisible(false);
-            }
-
-            const isMeasuringActive = !!(this.measureStartWorld || (this.isMeasuringMode && (pointer.isDown || pointer.wasTouch)));
-            if (isMeasuringActive && this.measurementLine && this.measurementText) {
-                const startWorld = this.measureStartWorld || { x: 30, y: 22 };
-                const currentWorld = this.getWorldPoint(pointer.worldX, pointer.worldY);
-                const dx = currentWorld.x - startWorld.x;
-                const dy = currentWorld.y - startWorld.y;
-                const distance = Math.hypot(dx, dy);
-                
-                this.measurementLine.clear();
-                this.measurementLine.lineStyle(3, 0xfbbf24, 0.95);
-                
-                const startScreen = this.getIsoPoint(startWorld.x, startWorld.y);
-                this.measurementLine.strokeLineShape(new Phaser.Geom.Line(
-                    startScreen.x + this.cameras.main.width / 2, 
-                    startScreen.y + 200, 
-                    pointer.worldX, 
-                    pointer.worldY
-                ));
-
-                this.measurementText.setText(`${distance.toFixed(1)}"`);
-                this.measurementText.setPosition(pointer.worldX + 15, pointer.worldY - 15);
-                this.measurementText.setVisible(true);
-                return; // block panning while measuring
-            }
-
-            if (!pointer.isDown) return;
-
-            // Rotate: Middle click OR Alt + Left click
-            const isRotate = pointer.middleButtonDown() || (pointer.leftButtonDown() && pointer.event?.altKey);
-            // Pan: Right click OR Left click on empty space OR 1-finger touch drag on empty space
-            const isTouchPan = pointer.wasTouch && !this.draggingToken && !this.draggingTerrain;
-            const isMousePan = pointer.rightButtonDown() || (pointer.leftButtonDown() && !this.draggingToken && !this.draggingTerrain && !isRotate && !pointer.event?.shiftKey && !pointer.event?.ctrlKey);
-            const isPan = isTouchPan || isMousePan;
-
-            if (this.marqueeStartWorld && pointer.isDown) {
-                this.marqueeGraphics.clear();
-                this.marqueeGraphics.lineStyle(2, 0x00ffff, 1);
-                this.marqueeGraphics.fillStyle(0x00ffff, 0.2);
-                const rect = new Phaser.Geom.Rectangle(
-                    Math.min(this.marqueeStartWorld.x, pointer.worldX),
-                    Math.min(this.marqueeStartWorld.y, pointer.worldY),
-                    Math.abs(pointer.worldX - this.marqueeStartWorld.x),
-                    Math.abs(pointer.worldY - this.marqueeStartWorld.y)
-                );
-                this.marqueeGraphics.fillRectShape(rect);
-                this.marqueeGraphics.strokeRectShape(rect);
-                return;
-            }
-
-            if (this.draggingTerrain) {
-                const dx = pointer.worldX - this.draggingTerrain.startWorldX;
-                const dy = pointer.worldY - this.draggingTerrain.startWorldY;
-                this.draggingTerrain.frontG.x = dx;
-                this.draggingTerrain.frontG.y = dy;
-                this.draggingTerrain.backG.x = dx;
-                this.draggingTerrain.backG.y = dy;
-                return;
-            }
-
-            if (isPan) {
-                const dx = (pointer.x - pointer.prevPosition.x) / this.cameras.main.zoom;
-                const dy = (pointer.y - pointer.prevPosition.y) / this.cameras.main.zoom;
-                this.cameras.main.scrollX -= dx;
-                this.cameras.main.scrollY -= dy;
-            } else if (isRotate) {
-                const dx = pointer.x - pointer.prevPosition.x;
-                this.rotateCamera(dx * 0.008);
-            }
-        });
-
-        this.input.on('wheel', (pointer: Phaser.Input.Pointer, gameObjects: Phaser.GameObjects.GameObject[], deltaX: number, deltaY: number) => {
-            const newZoom = this.cameras.main.zoom - deltaY * 0.001;
-            this.cameras.main.setZoom(Phaser.Math.Clamp(newZoom, 0.3, 3));
-        });
-
-        // External Camera Control Events from UI Buttons
-        EventBus.on('camera-zoom-in', () => {
-            this.cameras.main.setZoom(Phaser.Math.Clamp(this.cameras.main.zoom + 0.25, 0.3, 3));
-        });
-        EventBus.on('camera-zoom-out', () => {
-            this.cameras.main.setZoom(Phaser.Math.Clamp(this.cameras.main.zoom - 0.25, 0.3, 3));
-        });
-        EventBus.on('camera-reset', () => {
-            this.cameras.main.setZoom(1.0);
-            this.cameras.main.scrollX = 0;
-            this.cameras.main.scrollY = 0;
-            this.cameras.main.setRotation(0);
-            this.cameraYaw = 0;
-            this.updateBoardRender();
-        });
-        EventBus.on('camera-rotate-left', () => {
-            this.rotateCamera(-Math.PI / 8);
-        });
-        EventBus.on('camera-rotate-right', () => {
-            this.rotateCamera(Math.PI / 8);
-        });
+        // External Camera Control Events from UI Buttons (Moved to CameraManager)
         EventBus.on('animate-shoot', (data: { attackerId: string, targetId: string, color?: number }) => {
             this.playShootAnimation(data.attackerId, data.targetId, data.color);
         });
@@ -490,87 +222,11 @@ export class BoardScene extends Phaser.Scene {
             this.playTeleportAnimation(data.x, data.y, data.color);
         });
 
-        // Setup keyboard
-        if (this.input.keyboard) {
-            this.keyQ = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Q);
-            this.keyE = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
-            this.keyW = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W);
-            this.keyA = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A);
-            this.keyS = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S);
-            this.keyD = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D);
-        }
+        // Setup keyboard handled by InputManager
 
         EventBus.emit('scene-ready');
     }
-    // Convert Grid (X,Y) to Isometric Screen (X,Y)
-    getElevationInfo(x: number, y: number): { z: number, terrainId: string | null } {
-        let maxZ = 0;
-        let tId: string | null = null;
-        this.terrain.forEach(t => {
-            if (t.platforms && t.platforms.length > 0) {
-                const footprint = t.platforms[0].points || t.points;
-                const polygon = footprint.map(p => ({ x: p.x, y: p.y }));
-                if (pointInPolygon({ x, y }, polygon)) {
-                    t.platforms.forEach(plat => {
-                        if (plat.height > maxZ) {
-                            maxZ = plat.height;
-                            tId = t.id;
-                        }
-                    });
-                }
-            }
-        });
-        return { z: maxZ, terrainId: tId };
-    }
-
-    resolveWallCollisions(wx: number, wy: number, z: number, radius: number): { x: number, y: number } {
-        let px = wx;
-        let py = wy;
-
-        this.terrain.forEach(ter => {
-            // Only solid objects block movement
-            if (ter.type !== "obscuring" && ter.type !== "cover" && ter.label !== "Muro" && ter.label !== "Barril") return;
-
-            const pts = ter.points;
-            if (!pts || pts.length < 2) return;
-
-            for (let i = 0; i < pts.length; i++) {
-                const nextI = (i + 1) % pts.length;
-                const p1 = pts[i];
-                const p2 = pts[nextI];
-                
-                const z1 = ter.zHeights ? ter.zHeights[i] : (ter.height || 0);
-                const z2 = ter.zHeights ? ter.zHeights[nextI] : (ter.height || 0);
-                const wallH = Math.min(z1, z2);
-                
-                // If the token is above the wall or wall doesn't exist, it doesn't collide
-                if (wallH <= 0 || z >= wallH) continue;
-
-                // Line segment closest point
-                const dx = p2.x - p1.x;
-                const dy = p2.y - p1.y;
-                const len2 = dx * dx + dy * dy;
-                if (len2 === 0) continue; 
-
-                const t = Math.max(0, Math.min(1, ((px - p1.x) * dx + (py - p1.y) * dy) / len2));
-                const closestX = p1.x + t * dx;
-                const closestY = p1.y + t * dy;
-
-                const distSq = (px - closestX) * (px - closestX) + (py - closestY) * (py - closestY);
-                if (distSq < radius * radius && distSq > 0) {
-                    const dist = Math.sqrt(distSq);
-                    const push = radius - dist;
-                    const nx = (px - closestX) / dist;
-                    const ny = (py - closestY) / dist;
-                    
-                    px += nx * push;
-                    py += ny * push;
-                }
-            }
-        });
-        
-        return { x: px, y: py };
-    }
+    // Methods moved to PhysicsManager
 
     getIsoPoint(tx: number, ty: number) {
         const cx = this.gridWidth / 2;
@@ -630,218 +286,11 @@ export class BoardScene extends Phaser.Scene {
         return { x: tx, y: ty };
     }
 
-    createTransparentTexture(sourceKey: string, newKey: string) {
-        const srcTexture = this.textures.get(sourceKey);
-        if (!srcTexture || srcTexture.key === '__MISSING') return;
-        
-        const src = srcTexture.getSourceImage();
-        if (!src) return;
+    // (Texture removal method extracted to TokenRenderer)
 
-        const canvas = document.createElement('canvas');
-        canvas.width = src.width as number;
-        canvas.height = src.height as number;
-        
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-        
-        ctx.drawImage(src as CanvasImageSource, 0, 0);
-        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const data = imgData.data;
-        
-        // Remove white/grey/green backgrounds while preserving colored miniature pixels
-        for (let i = 0; i < data.length; i += 4) {
-            const r = data[i];
-            const g = data[i + 1];
-            const b = data[i + 2];
-            
-            // Remove bright green chroma key
-            if (g > 80 && g > r * 1.3 && g > b * 1.3) {
-                data[i + 3] = 0;
-                continue;
-            }
-            
-            // Check how "grey/white" the pixel is: measure the max spread between channels
-            // Pure grey/white pixels have very similar R,G,B values (low variance)
-            const maxChannel = Math.max(r, g, b);
-            const minChannel = Math.min(r, g, b);
-            const saturation = maxChannel - minChannel; // 0 = grey, high = colorful
-            const brightness = (r + g + b) / 3;
-            
-            // Fully transparent: bright AND low saturation (definitely background)
-            if (brightness > 200 && saturation < 30) {
-                data[i + 3] = 0;
-            }
-            // Partial fade: medium brightness with low saturation (anti-alias edge)
-            else if (brightness > 160 && saturation < 20) {
-                const alpha = Math.round(((saturation / 20) * 0.7) * 255);
-                data[i + 3] = Math.min(data[i + 3], alpha);
-            }
-        }
-        
-        ctx.putImageData(imgData, 0, 0);
-        if (this.textures.exists(newKey)) {
-            this.textures.remove(newKey);
-        }
-        this.textures.addCanvas(newKey, canvas);
-    }
 
-    generateNoiseTexture() {
-        if (!this.textures.exists('simple_battlemat')) {
-            const size = 512;
-            const canvas = document.createElement('canvas');
-            canvas.width = size;
-            canvas.height = size;
-            const ctx = canvas.getContext('2d');
-            
-            if (ctx) {
-                // Base color: very dark slate gray
-                ctx.fillStyle = '#16181a';
-                ctx.fillRect(0, 0, size, size);
-                
-                const imgData = ctx.getImageData(0, 0, size, size);
-                const data = imgData.data;
-                
-                // Add subtle monochromatic noise
-                for (let i = 0; i < data.length; i += 4) {
-                    const noise = (Math.random() - 0.5) * 14; 
-                    data[i] = Math.min(255, Math.max(0, 22 + noise));     // R
-                    data[i+1] = Math.min(255, Math.max(0, 24 + noise));   // G
-                    data[i+2] = Math.min(255, Math.max(0, 26 + noise));   // B
-                    data[i+3] = 255;                                      // A
-                }
-                ctx.putImageData(imgData, 0, 0);
-            }
-            this.textures.addCanvas('simple_battlemat', canvas);
-        }
-    }
 
-    drawGrid() {
-        if (!this.add) return;
-        if (!this.gridGraphics) {
-            this.gridGraphics = this.add.graphics();
-        }
-        this.gridGraphics.clear();
-        this.gridGraphics.lineStyle(1, 0x00f2fe, 0.15); // Neon cyan for sci-fi look
-
-        for (let x = 0; x <= this.gridWidth; x++) {
-            const p1 = this.getIsoPoint(x, 0);
-            const p2 = this.getIsoPoint(x, this.gridHeight);
-            this.gridGraphics.lineBetween(p1.x, p1.y, p2.x, p2.y);
-        }
-
-        for (let y = 0; y <= this.gridHeight; y++) {
-            const p1 = this.getIsoPoint(0, y);
-            const p2 = this.getIsoPoint(this.gridWidth, y);
-            this.gridGraphics.lineBetween(p1.x, p1.y, p2.x, p2.y);
-        }
-        
-        // Offset so grid is centered
-        this.gridGraphics.setPosition(this.cameras.main.width / 2, 200);
-    }
-
-    redrawTokens() {
-        const tokenSprites = this.tokenSprites;
-        if (!tokenSprites || !(tokenSprites as any).children) return;
-        
-        const currentIds = this.tokens.map(t => t.id);
-        
-        // Remove sprites that no longer exist with a sleek Death Animation
-        const sprites = tokenSprites.getChildren() as Phaser.GameObjects.Sprite[];
-        sprites.forEach(sprite => {
-            const tokenId = sprite.getData('tokenId');
-            if (!currentIds.includes(tokenId) && !sprite.getData('dying')) {
-                sprite.setData('dying', true);
-                
-                // Remove from tokenSprites group immediately so targeting/physics ignores it
-                tokenSprites.remove(sprite);
-
-                // Create a red shockwave/explosion ring effect
-                const deathEffect = this.add.graphics();
-                deathEffect.setDepth(sprite.depth + 10);
-                
-                let radius = 5;
-                const fxTimer = this.time.addEvent({
-                    delay: 20,
-                    repeat: 25,
-                    callback: () => {
-                        deathEffect.clear();
-                        radius += 1.5;
-                        deathEffect.lineStyle(3, 0xff0000, Math.max(0, 1 - radius / 40));
-                        deathEffect.strokeCircle(sprite.x, sprite.y - 15, radius);
-                        deathEffect.fillStyle(0xff2222, Math.max(0, 0.4 - radius / 80));
-                        deathEffect.fillCircle(sprite.x, sprite.y - 15, radius * 0.8);
-                    }
-                });
-
-                // Tint sprite red, tilt it over (collapse), shrink and fade out
-                sprite.setTint(0xff3333);
-                this.tweens.add({
-                    targets: sprite,
-                    angle: 90,             // Tilt over on its side
-                    alpha: 0,              // Fade out
-                    scaleX: sprite.scaleX * 0.4,
-                    scaleY: sprite.scaleY * 0.4,
-                    y: sprite.y + 12,      // Fall to ground
-                    duration: 600,
-                    ease: 'Power2',
-                    onComplete: () => {
-                        deathEffect.destroy();
-                        sprite.destroy();
-                    }
-                });
-            }
-        });
-        
-        // Add or update sprites
-        this.tokens.forEach(tok => {
-            let sprite = (tokenSprites.getChildren() as Phaser.GameObjects.Sprite[])
-                .find(s => s.getData('tokenId') === tok.id);
-                
-            if (!sprite) {
-                // Derive texture key directly from the token's image path
-                const dsId = DATASHEETS.find(ds => ds.image && ds.image === tok.image)?.id;
-                const miniKey = dsId ? `mini_${dsId}` : null;
-                const fallbackKey = tok.faction === 'imperium' ? 'token_imperium' : 'token_chaos';
-                const imgKey = (miniKey && this.textures.exists(miniKey)) ? miniKey : fallbackKey;
-                sprite = this.add.sprite(0, 0, imgKey);
-                
-                // Calculate scale dynamically based on real 40k rules
-                // 1 inch = 25.4 mm. 1 grid square = 1 inch.
-                // In our isometric projection, 1 grid square has a screen-space width of 64 pixels (2 * tileWidth).
-                const targetWidth = (tok.baseMm / 25.4) * 64;
-                const scale = targetWidth / sprite.width;
-                sprite.setScale(scale);
-                sprite.setData('baseScale', scale); // Save for physics lifting
-                
-                sprite.setOrigin(0.5, 0.85);
-                
-                sprite.setInteractive({ cursor: 'pointer' });
-                this.input.setDraggable(sprite);
-                
-                sprite.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-                    if (pointer.event?.shiftKey || this.isMultiSelectMode) {
-                        EventBus.emit('ui-toggle-select', tok.id);
-                    } else {
-                        EventBus.emit('ui-select', [tok.id]);
-                    }
-                });
-                
-                tokenSprites.add(sprite);
-            }
-            
-            // Store token data on sprite
-            sprite.setData('tokenId', tok.id);
-            sprite.setData('worldX', tok.x);
-            sprite.setData('worldY', tok.y);
-            
-            const el = this.getElevationInfo(tok.x, tok.y);
-            sprite.setData('z', tok.z ?? el.z);
-            sprite.setData('terrainId', el.terrainId);
-        });
-        
-        // Render positions for all non-dragged tokens
-        this.updateBoardRender();
-
+    setupDragHandlers() {
         // Handle Drag Events globally
         this.input.on('dragstart', (pointer: Phaser.Input.Pointer, gameObject: Phaser.GameObjects.Sprite) => {
             this.draggingToken = gameObject;
@@ -954,11 +403,11 @@ export class BoardScene extends Phaser.Scene {
             const baseMm = tok ? tok.baseMm : 32;
             const radius = (baseMm / 25.4) / 2; // radius in inches
             
-            let el = this.getElevationInfo(currentWorld.x, currentWorld.y);
-            currentWorld = this.resolveWallCollisions(currentWorld.x, currentWorld.y, el.z, radius);
+            let el = PhysicsManager.getElevationInfo(currentWorld.x, currentWorld.y, this.terrain);
+            currentWorld = PhysicsManager.resolveWallCollisions(currentWorld.x, currentWorld.y, el.z, radius, this.terrain);
             
             // Re-evaluate elevation in case collision pushed us onto/off a platform
-            el = this.getElevationInfo(currentWorld.x, currentWorld.y);
+            el = PhysicsManager.getElevationInfo(currentWorld.x, currentWorld.y, this.terrain);
             
             // Convert resolved world coords back to physical screen target coordinates
             const iso = this.getIsoPoint(currentWorld.x, currentWorld.y);
@@ -985,9 +434,9 @@ export class BoardScene extends Phaser.Scene {
                     const mbaseMm = mTok ? mTok.baseMm : 32;
                     const mRadius = (mbaseMm / 25.4) / 2;
                     
-                    let mel = this.getElevationInfo(mx, my);
-                    let mResolved = this.resolveWallCollisions(mx, my, mel.z, mRadius);
-                    mel = this.getElevationInfo(mResolved.x, mResolved.y);
+                    let mel = PhysicsManager.getElevationInfo(mx, my, this.terrain);
+                    let mResolved = PhysicsManager.resolveWallCollisions(mx, my, mel.z, mRadius, this.terrain);
+                    mel = PhysicsManager.getElevationInfo(mResolved.x, mResolved.y, this.terrain);
                     
                     const miso = this.getIsoPoint(mResolved.x, mResolved.y);
                     const mTargetX = miso.x + this.cameras.main.width / 2;
@@ -1087,7 +536,7 @@ export class BoardScene extends Phaser.Scene {
                 const targetX = gameObject.getData('targetX');
                 const targetY = gameObject.getData('targetY');
                 const endWorld = this.getWorldPoint(targetX, targetY + (gameObject.getData('z') || 0));
-                const el = this.getElevationInfo(endWorld.x, endWorld.y);
+                const el = PhysicsManager.getElevationInfo(endWorld.x, endWorld.y, this.terrain);
                 moves.push({ id: gameObject.getData('tokenId'), x: endWorld.x, y: endWorld.y, z: el.z });
                 
                 if (this.dragGroup) {
@@ -1095,7 +544,7 @@ export class BoardScene extends Phaser.Scene {
                         const mTargetX = member.sprite.getData('targetX');
                         const mTargetY = member.sprite.getData('targetY');
                         const mEndWorld = this.getWorldPoint(mTargetX, mTargetY + (member.sprite.getData('z') || 0));
-                        const mel = this.getElevationInfo(mEndWorld.x, mEndWorld.y);
+                        const mel = PhysicsManager.getElevationInfo(mEndWorld.x, mEndWorld.y, this.terrain);
                         moves.push({ id: member.sprite.getData('tokenId'), x: mEndWorld.x, y: mEndWorld.y, z: mel.z });
                     }
                 }
@@ -1112,454 +561,7 @@ export class BoardScene extends Phaser.Scene {
         });
     }
 
-    redrawTerrain() {
-        if (!this.add || !this.cameras || !this.cameras.main || this.cameras.main.width <= 0 || this.cameras.main.height <= 0) return;
 
-        // Clear all existing graphics
-        this.terrainGraphicsMap.forEach(g => {
-            if (g.back && g.back.scene) g.back.destroy();
-            if (g.front && g.front.scene) g.front.destroy();
-        });
-        this.terrainGraphicsMap.clear();
-        
-        if (this.shadowGraphics) {
-            this.shadowGraphics.clear();
-        }
-
-        this.terrain.forEach(ter => {
-            const backG = this.add.graphics();
-            const frontG = this.add.graphics();
-
-            const pts = ter.points.map((p: { x: number, y: number }) => {
-                const iso = this.getIsoPoint(p.x, p.y);
-                return { 
-                    worldX: p.x, 
-                    worldY: p.y, 
-                    x: iso.x + this.cameras.main.width / 2, 
-                    y: iso.y + 200 
-                };
-            });
-            
-            // ----- FLAT FLOOR SHADOW (cartoon / illustration style) -----
-            // Offset footprint polygon to simulate a directional blob shadow cast on the ground
-            if (this.shadowGraphics) {
-                const shadowOffsetX = 20;
-                const shadowOffsetY = 10;
-                this.shadowGraphics.fillStyle(0x000000, 0.35);
-                this.shadowGraphics.beginPath();
-                this.shadowGraphics.moveTo(pts[0].x + shadowOffsetX, pts[0].y + shadowOffsetY);
-                for (let i = 1; i < pts.length; i++) {
-                    this.shadowGraphics.lineTo(pts[i].x + shadowOffsetX, pts[i].y + shadowOffsetY);
-                }
-                this.shadowGraphics.closePath();
-                this.shadowGraphics.fill();
-            }
-            
-            // Adjust to grid center and calculate min/max Y for depth sorting
-            let min_sy = Infinity;
-            let max_sy = -Infinity;
-            let cx = 0;
-            let cy = 0;
-            let worldCx = 0;
-            let worldCy = 0;
-            pts.forEach((p: any) => {
-
-                if (p.y < min_sy) min_sy = p.y;
-                if (p.y > max_sy) max_sy = p.y;
-                cx += p.x;
-                cy += p.y;
-                worldCx += p.worldX;
-                worldCy += p.worldY;
-            });
-            cx /= pts.length;
-            cy /= pts.length;
-            worldCy /= pts.length;
-            
-            // (Shadow was drawn above the forEach loop as a flat polygon)
-
-            // Height simulation
-            const height = ter.height !== undefined ? ter.height : (ter.type === "obscuring" ? 80 : (ter.label === "Bosque" ? 40 : 10));
-
-            this.terrainGraphicsMap.set(ter.id, { back: backG, front: frontG, max_sy, height });
-            backG.setDepth(min_sy - 1);
-            frontG.setDepth(max_sy + 1);
-            
-            // Draw floor footprint (Back Layer) - dark base to show the ground below the structure
-            backG.fillStyle(0x0a0815, 1.0); // Very dark floor
-            backG.lineStyle(1, 0x00000, 0.8);
-            backG.beginPath();
-            backG.moveTo(pts[0].x, pts[0].y);
-            for (let i = 1; i < pts.length; i++) backG.lineTo(pts[i].x, pts[i].y);
-            backG.closePath();
-            backG.fill();
-
-            // Collect walls and sort by depth (isometric Z-sorting)
-            interface Wall { p1: any, p2: any, midY: number, isInner: boolean, z1: number, z2: number }
-            const walls: Wall[] = [];
-            for (let i = 0; i < pts.length; i++) {
-                const prevI = (i - 1 + pts.length) % pts.length;
-                const nextI = (i + 1) % pts.length;
-                const nextNextI = (i + 2) % pts.length;
-                
-                // Cross product to find concave vertices in the clockwise world footprint
-                const cp_i = (pts[i].worldX - pts[prevI].worldX) * (pts[nextI].worldY - pts[i].worldY) - (pts[i].worldY - pts[prevI].worldY) * (pts[nextI].worldX - pts[i].worldX);
-                const cp_next = (pts[nextI].worldX - pts[i].worldX) * (pts[nextNextI].worldY - pts[nextI].worldY) - (pts[nextI].worldY - pts[i].worldY) * (pts[nextNextI].worldX - pts[nextI].worldX);
-                
-                // If either vertex of the wall is concave (cp < 0), this is an inner wall of a concave shape
-                const isInner = cp_i < -0.01 || cp_next < -0.01;
-
-                walls.push({
-                    p1: pts[i],
-                    p2: pts[nextI],
-                    midY: (pts[i].y + pts[nextI].y) / 2,
-                    isInner,
-                    z1: ter.zHeights ? ter.zHeights[i] : height,
-                    z2: ter.zHeights ? ter.zHeights[nextI] : height
-                });
-            }
-            
-            // Draw furthest walls first (lowest Y) so closer walls overlap them correctly
-            walls.sort((a, b) => a.midY - b.midY);
-
-            for (const w of walls) {
-                const { p1, p2, z1, z2 } = w;
-                
-                // Skip drawing walls that have 0 height (flat on ground)
-                if (z1 === 0 && z2 === 0) continue;
-                
-                const dx = p2.x - p1.x;
-                const dy = p2.y - p1.y;
-                const len = Math.sqrt(dx*dx + dy*dy) || 1;
-                // Outward normal for a clockwise polygon in screen space
-                const ny = -dx / len;
-                let isFront = (ny > -0.01); 
-                
-                // Inner walls of concave shapes (like the inside of an L) never form the front occluding hull
-                if (w.isInner) {
-                    isFront = false;
-                }
-                
-                const g = isFront ? frontG : backG;
-                
-                const nx = dy / len; // Screen-space normal X (used for isFront detection only)
-                
-                // --- CARTOON LIGHTING using WORLD-SPACE normal (rotation-independent) ---
-                // Light source fixed at world direction (-1, -1) = comes from top-left of the board
-                const wdx = p2.worldX - p1.worldX;
-                const wdy = p2.worldY - p1.worldY;
-                const wlen = Math.sqrt(wdx * wdx + wdy * wdy) || 1;
-                // Outward world-space normal (perpendicular to wall edge)
-                const wnx = wdy / wlen;
-                const wny = -wdx / wlen;
-                // Dot product with fixed light direction (-1, -1) normalized = (-0.707, -0.707)
-                const lightDot = (wnx * -0.707 + wny * -0.707 + 1) / 2; // 0..1
-                const light = Math.max(0, Math.min(1, lightDot));
-                
-                // Alien Sci-Fi base colors
-                let baseHex = 0x211b3d; // lit face: purple/metal
-                let shadowHex = 0x0a0614; // shadow face: near-black
-                if (ter.type === "obscuring") { baseHex = 0x1e1a35; shadowHex = 0x080510; }
-                else if (ter.label === "Bosque") { baseHex = 0x1a0b17; shadowHex = 0x0a0810; }
-                
-                // Hard two-tone cartoon shading: lit side bright, shadow side very dark
-                const isShadowFace = light < 0.5;
-                const faceHex = isShadowFace ? shadowHex : baseHex;
-                const shade = isShadowFace ? 0.3 + light * 0.4 : 0.7 + light * 0.3;
-                const baseColor = Phaser.Display.Color.ValueToColor(faceHex);
-                const finalColor = Phaser.Display.Color.GetColor(
-                    Math.min(255, Math.floor(baseColor.red * shade)),
-                    Math.min(255, Math.floor(baseColor.green * shade)),
-                    Math.min(255, Math.floor(baseColor.blue * shade))
-                );
-                
-                g.fillStyle(finalColor, 1.0);
-                // Shadow-side walls get a thicker dark outline for cartoon cel-shading look
-                const outlineWidth = isShadowFace ? 2 : 1;
-                const outlineAlpha = isShadowFace ? 1.0 : 0.6;
-                g.lineStyle(outlineWidth, 0x000000, outlineAlpha);
-                
-                g.beginPath();
-                g.moveTo(p1.x, p1.y);
-                g.lineTo(p2.x, p2.y);
-                g.lineTo(p2.x, p2.y - z2);
-                g.lineTo(p1.x, p1.y - z1);
-                g.closePath();
-                g.fill();
-                g.strokePath();
-                
-                // Procedural Textures - Alien Sci-Fi
-                // Only draw standard textures on flat rectangular walls
-                if (ter.type === "obscuring" && z1 === z2 && z1 >= 40) {
-                    // Use WORLD length (wlen) for texturing so it doesn't slide when camera rotates!
-                    const windowWidth = 20; // scaled up slightly for world space
-                    const pillarWidth = 10;
-                    const unit = windowWidth + pillarWidth;
-                    const count = Math.floor(wlen / unit);
-                    
-                    const floorHeight = 40; 
-                    const floors = Math.floor(height / floorHeight);
-                    
-                    // Neon highlights
-                    const highlightColor = 0x00f2fe; // Cyan glow
-                    const shadowColor = 0x050114;
-                    
-                    for (let f = 0; f < floors; f++) {
-                        const zBase = f * floorHeight + 5;
-                        const zTop = zBase + 20;
-                        const zPeak = zTop + 10;
-                        
-                        // Draw alien angular windows/vents
-                        for (let i = 0; i < count; i++) {
-                            const offset = (wlen - (count * unit)) / 2;
-                            const uStart = offset + i * unit + (pillarWidth / 2);
-                            
-                            const t1 = uStart / wlen;
-                            const t2 = (uStart + windowWidth) / wlen;
-                            const tMid = (uStart + windowWidth / 2) / wlen;
-                            
-                            const wx1 = p1.x + dx * t1;
-                            const wy1 = p1.y + dy * t1;
-                            const wx2 = p1.x + dx * t2;
-                            const wy2 = p1.y + dy * t2;
-                            const wmidX = p1.x + dx * tMid;
-                            const wmidY = p1.y + dy * tMid;
-                            
-                            g.fillStyle(shadowColor, 0.9);
-                            g.beginPath();
-                            g.moveTo(wx1, wy1 - zBase);
-                            g.lineTo(wx2, wy2 - zBase);
-                            g.lineTo(wmidX, wmidY - zTop); // Hexagonal alien vent shape
-                            g.lineTo(wx1, wy1 - zTop);
-                            g.closePath();
-                            g.fill();
-                            
-                            // Glowing vent edge
-                            g.lineStyle(1, highlightColor, 0.8);
-                            g.strokePath();
-                            
-                            // Add a glowing core line inside the vent
-                            g.lineStyle(2, 0xff00ff, 0.6); // Magenta core
-                            g.beginPath();
-                            g.moveTo(wmidX, wmidY - zBase - 2);
-                            g.lineTo(wmidX, wmidY - zTop + 2);
-                            g.strokePath();
-                            // Decorative glowing data banks (rectangles) below the vent
-                            const tW = 5 / wlen; // 5 units wide in world space
-                            const px1 = p1.x + dx * (tMid - tW);
-                            const py1 = p1.y + dy * (tMid - tW);
-                            const px2 = p1.x + dx * (tMid + tW);
-                            const py2 = p1.y + dy * (tMid + tW);
-                            
-                            g.fillStyle(0x00f2fe, 0.7); // Bright cyan glowing data bank
-                            g.beginPath();
-                            g.moveTo(px1, py1 - zBase + 2);
-                            g.lineTo(px2, py2 - zBase + 2);
-                            g.lineTo(px2, py2 - zBase + 4);
-                            g.lineTo(px1, py1 - zBase + 4);
-                            g.closePath();
-                            g.fill();
-                            
-                            // Horizontal vent slits (tiny rectangles) above the glowing core
-                            g.lineStyle(1, shadowColor, 0.9);
-                            for (let slit = 0; slit < 3; slit++) {
-                                const zs = zTop - 2 - slit * 2;
-                                g.beginPath();
-                                g.moveTo(px1, py1 - zs);
-                                g.lineTo(px2, py2 - zs);
-                                g.strokePath();
-                            }
-                        }
-                        
-                        // Glowing floor ledges
-                        if (f > 0) {
-                            const zLedge = f * floorHeight;
-                            g.lineStyle(2, 0xff00ff, 0.7); // Magenta glowing floor strip
-                            g.beginPath();
-                            g.moveTo(p1.x, p1.y - zLedge);
-                            g.lineTo(p2.x, p2.y - zLedge);
-                            g.strokePath();
-                        }
-                    }
-                    
-                    // Vertical alien tech pillars
-                    for (let i = 0; i <= count; i++) {
-                        const offset = (wlen - (count * unit)) / 2;
-                        const uCenter = offset + i * unit - (pillarWidth / 2);
-                        if (uCenter >= 0 && uCenter <= wlen) {
-                            const t = uCenter / wlen;
-                            const px = p1.x + dx * t;
-                            const py = p1.y + dy * t;
-                            
-                            g.lineStyle(2, highlightColor, 0.4);
-                            g.beginPath();
-                            g.moveTo(px, py);
-                            g.lineTo(px, py - height);
-                            g.strokePath();
-                        }
-                    }
-                } else if (ter.label === "Barril") {
-                    // Toxic/plasma barrel (small rectangle with horizontal bands)
-                    const barrelHighlight = 0x00ff00; // Neon green plasma
-                    const barrelDark = 0x113311;
-                    
-                    g.lineStyle(2, barrelHighlight, 0.8);
-                    
-                    // Draw horizontal bands
-                    for (let z = 3; z <= height - 3; z += 5) {
-                        g.beginPath();
-                        g.moveTo(p1.x, p1.y - z);
-                        g.lineTo(p2.x, p2.y - z);
-                        g.strokePath();
-                    }
-                    
-                    // Vertical seams
-                    g.lineStyle(1, barrelDark, 0.6);
-                    g.beginPath();
-                    g.moveTo(p1.x + dx*0.3, p1.y + dy*0.3);
-                    g.lineTo(p1.x + dx*0.3, p1.y + dy*0.3 - height);
-                    g.strokePath();
-                } else if (ter.type === "cover") {
-                    const highlightColor = 0xff00ff; // Magenta crates
-                    
-                    // Glowing X Braces for sci-fi cover
-                    g.lineStyle(2, highlightColor, 0.8);
-                    g.beginPath();
-                    g.moveTo(p1.x, p1.y);
-                    g.lineTo(p2.x, p2.y - height);
-                    g.moveTo(p1.x, p1.y - height);
-                    g.lineTo(p2.x, p2.y);
-                    g.strokePath();
-                    
-                    // Decorative tech panel in the center of the crate
-                    const cx = (p1.x + p2.x) / 2;
-                    const cy = (p1.y + p2.y) / 2;
-                    const zc = height / 2;
-                    g.fillStyle(0x00f2fe, 0.9);
-                    g.beginPath();
-                    g.moveTo(cx - 3, cy - zc - 3);
-                    g.lineTo(cx + 3, cy - zc - 3);
-                    g.lineTo(cx + 3, cy - zc + 3);
-                    g.lineTo(cx - 3, cy - zc + 3);
-                    g.closePath();
-                    g.fill();
-                    
-
-                    // Borders
-                    g.lineStyle(2, highlightColor, 0.8);
-                    g.beginPath();
-                    g.moveTo(p1.x, p1.y - 2);
-                    g.lineTo(p2.x, p2.y - 2);
-                    g.moveTo(p1.x, p1.y - height + 2);
-                    g.lineTo(p2.x, p2.y - height + 2);
-                    g.strokePath();
-                } else if (ter.label === "Bosque") {
-                    // Alien crystal growth pattern
-                    const treeCount = Math.floor(wlen / 25);
-                    g.lineStyle(3, 0x00f2fe, 0.6);
-                    for(let i=1; i<treeCount; i++) {
-                        const t = i / treeCount;
-                        const px = p1.x + dx * t;
-                        const py = p1.y + dy * t;
-                        g.beginPath();
-                        g.moveTo(px, py);
-                        g.lineTo(px + 10, py - height/2);
-                        g.lineTo(px, py - height);
-                        g.strokePath();
-                    }
-                } else if (ter.platforms) {
-                    // Fallback ledges for unknown terrain types with platforms
-                    ter.platforms.forEach(plat => {
-                        const platHeight = plat.height;
-                        if (platHeight > 0 && platHeight < height) {
-                            g.beginPath();
-                            g.moveTo(p1.x, p1.y - platHeight);
-                            g.lineTo(p2.x, p2.y - platHeight);
-                            g.lineStyle(3, 0x2b947f, 0.8);
-                            g.strokePath();
-                        }
-                    });
-                }
-            }
-
-            // Draw platforms (Internal floors) - Back Layer so tokens can stand on them
-            // and front walls occlude them
-            if (ter.platforms) {
-                const floors = [...ter.platforms];
-                floors.sort((a, b) => a.height - b.height);
-                
-                floors.forEach(plat => {
-                    const platHeight = plat.height;
-                    if (plat.points) { // Only draw if it has custom wide floor points
-                        const floorPts = plat.points.map(p => {
-                            const iso = this.getIsoPoint(p.x, p.y);
-                            return { x: iso.x + this.cameras.main.width / 2, y: iso.y + 200 };
-                        });
-                        
-                        const floorColor = ter.type === "obscuring" ? 0x161329 : (ter.label === "Bosque" ? 0x1a0b17 : 0x211b3d);
-                        backG.fillStyle(floorColor, 1.0); // Draw into backG!
-                        backG.lineStyle(2, 0x00f2fe, 0.8); // Glowing cyan edges for floors
-                        
-                        backG.beginPath();
-                        backG.moveTo(floorPts[0].x, floorPts[0].y - platHeight);
-                        for (let i = 1; i < floorPts.length; i++) backG.lineTo(floorPts[i].x, floorPts[i].y - platHeight);
-                        backG.closePath();
-                        backG.fill();
-                        backG.strokePath();
-                        
-                        // Add an alien hexagonal pattern on the floor
-                        backG.lineStyle(1, 0x00f2fe, 0.2);
-                        const numHexes = 3;
-                        for (let i = 0; i < floorPts.length; i++) {
-                            const pA = floorPts[i];
-                            const pB = floorPts[(i + 1) % floorPts.length];
-                            backG.beginPath();
-                            backG.moveTo(pA.x, pA.y - platHeight);
-                            backG.lineTo((pA.x + pB.x)/2, (pA.y + pB.y)/2 - platHeight + 10);
-                            backG.strokePath();
-                        }
-                    }
-                });
-            }
-
-            // Draw Wall Tops (Front Layer) - Cartoon-shaded roof cap
-            // The top face is always the most lit face (faces the sky/light source)
-            const topColor = ter.type === "obscuring" ? 0x2f4a6e : (ter.label === "Bosque" ? 0x2a4838 : 0x3a3a5c);
-            frontG.fillStyle(topColor, 1.0);
-            frontG.lineStyle(1, 0x000000, 0.8);
-            frontG.beginPath();
-            const z0 = ter.zHeights ? ter.zHeights[0] : height;
-            frontG.moveTo(pts[0].x, pts[0].y - z0);
-            for (let i = 1; i < pts.length; i++) {
-                const zi = ter.zHeights ? ter.zHeights[i] : height;
-                frontG.lineTo(pts[i].x, pts[i].y - zi);
-            }
-            frontG.closePath();
-            frontG.fill();
-            frontG.strokePath();
-            
-            // Cartoon top highlight: draw a subtle bright inner stroke near the top-left corner
-            frontG.lineStyle(2, 0x6080b0, 0.5);
-            frontG.beginPath();
-            frontG.moveTo(pts[0].x, pts[0].y - z0);
-            frontG.lineTo(pts[1 % pts.length].x, pts[1 % pts.length].y - (ter.zHeights ? ter.zHeights[1 % pts.length] : height));
-            frontG.strokePath();
-
-            // Make interactive for terrain phase
-            const hitPoly = pts.map(p => ({ x: p.x, y: p.y - (ter.zHeights ? ter.zHeights[0] : height) }));
-            frontG.setInteractive(new Phaser.Geom.Polygon(hitPoly), Phaser.Geom.Polygon.Contains);
-            frontG.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-                if (this.gameState?.phase === 'roster') {
-                    this.draggingTerrain = {
-                        id: ter.id,
-                        startWorldX: pointer.worldX,
-                        startWorldY: pointer.worldY,
-                        frontG,
-                        backG
-                    };
-                }
-            });
-        });
-    }
 
     showFloatingText(x: number, y: number, msg: string, color: number) {
         if (!this.add) return;
@@ -1569,14 +571,18 @@ export class BoardScene extends Phaser.Scene {
         text.setOrigin(0.5, 1);
         text.setDepth(10000);
         this.tweens.add({
-            targets: text, y: y - 40, alpha: 0, duration: 1500, ease: 'Power2', onComplete: () => text.destroy()
+                            targets: text, y: y - 40, alpha: 0, duration: 1500, ease: 'Power2', onComplete: () => text.destroy()
         });
     }
 
     update(time: number, delta: number) {
-        if (this.keyQ?.isDown) this.rotateCamera(-0.002 * delta);
-        if (this.keyE?.isDown) this.rotateCamera(0.002 * delta);
+        if (!this.gameState || !this.tokenSprites) return;
         
+        this.cameraManager.update(time, delta);
+        // Sync the scene's cameraYaw with CameraManager for rendering math
+        this.cameraYaw = this.cameraManager.cameraYaw;
+
+        // --- KEYBOARD CAMERA PANNING ---
         const panSpeed = 0.5 * delta / this.cameras.main.zoom;
         if (this.keyW?.isDown) this.cameras.main.scrollY -= panSpeed;
         if (this.keyS?.isDown) this.cameras.main.scrollY += panSpeed;
@@ -1754,10 +760,10 @@ export class BoardScene extends Phaser.Scene {
             this.matContainer.setPosition(this.cameras.main.width / 2 + offsetX, 200 + offsetY);
         }
         
-        this.drawGrid();
+        this.terrainRenderer.drawGrid();
         this.drawDeploymentZones();
         this.drawObjectives();
-        this.redrawTerrain();
+        this.terrainRenderer.redrawTerrain();
     }
 
     drawDeploymentZones() {
@@ -2049,7 +1055,7 @@ export class BoardScene extends Phaser.Scene {
     // Teleport Spawn Animation (Animación de Teletransportación al desplegar unidad)
     playTeleportAnimation(wx: number, wy: number, color = 0x00f2fe) {
         if (!this.add) return;
-        const el = this.getElevationInfo(wx, wy);
+        const el = PhysicsManager.getElevationInfo(wx, wy, this.terrain);
         const iso = this.getIsoPoint(wx, wy);
         const sx = iso.x + this.cameras.main.width / 2;
         const sy = iso.y + 200 - el.z;

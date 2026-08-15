@@ -99,6 +99,16 @@ export type Phase = "roster" | "deployment" | "command" | "movement" | "shooting
 
 export const PHASES: Phase[] = ["roster", "deployment", "command", "movement", "shooting", "charge", "fight"]
 
+export const PHASE_LABEL: Record<Phase, string> = {
+  "roster": "Listas",
+  "deployment": "Despliegue",
+  "command": "Mando",
+  "movement": "Movimiento",
+  "shooting": "Disparo",
+  "charge": "Carga",
+  "fight": "Combate"
+}
+
 export interface Datasheet {
   id: string
   name: string
