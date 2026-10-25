@@ -96,7 +96,7 @@ export function useMovementEngine() {
     store.setUnits(prev => prev.map(u => u.id === unitId ? { ...u, fellBack: true } : u));
     store.setLog(prev => [
       createLog({ 
-        kind: casualtiesCount > 0 ? "casualty" : "faction", 
+        kind: casualtiesCount > 0 ? "casualty" : "info", 
         faction: store.game.activePlayer, 
         round: store.game.round, 
         text 

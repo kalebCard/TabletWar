@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { DATASHEETS } from '../../constants';
 import { Token } from '../../types';
+import { PhysicsManager } from './PhysicsManager';
 
 export class TokenRenderer {
     private scene: Phaser.Scene;
@@ -99,7 +100,9 @@ export class TokenRenderer {
             sprite.setData('worldX', tok.x);
             sprite.setData('worldY', tok.y);
             
-            const el = board.getElevationInfo(tok.x, tok.y);
+            const el = typeof board.getElevationInfo === 'function' 
+                ? board.getElevationInfo(tok.x, tok.y) 
+                : PhysicsManager.getElevationInfo(tok.x, tok.y, board.terrain || []);
             sprite.setData('z', tok.z ?? el.z);
             sprite.setData('terrainId', el.terrainId);
         });

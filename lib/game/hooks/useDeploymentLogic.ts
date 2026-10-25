@@ -17,16 +17,21 @@ export function useDeploymentLogic(engine: any) {
   };
 
   const handleDeployUnit = (id: string, x: number, y: number) => {
-    const rUnit = engine.rosterUnits.find((u: any) => u.id === id);
+    const state = useGameStore.getState();
+    const roster = engine?.rosterUnits ?? state.rosterUnits;
+    const rUnit = roster?.find((u: any) => u.id === id);
     const faction = rUnit?.faction || "imperium";
+    const terrainLayout = engine?.game?.terrainLayout ?? state.game?.terrainLayout ?? "custom";
 
-    const deploymentCheck = isValidDeploymentPosition(faction, x, engine.game.terrainLayout);
+    const deploymentCheck = isValidDeploymentPosition(faction, x, terrainLayout);
     if (!deploymentCheck.valid) {
       alert(deploymentCheck.errorMessage);
       return;
     }
 
-    engine.deployUnit(id, x, y);
+    if (engine?.deployUnit) {
+      engine.deployUnit(id, x, y);
+    }
     uiStore.setUIState({ isMobileOpen: true }); // Auto-reopen panel after unit placement
   };
 

@@ -1052,6 +1052,10 @@ export class BoardScene extends Phaser.Scene {
         }
     }
 
+    public getElevationInfo(wx: number, wy: number) {
+        return PhysicsManager.getElevationInfo(wx, wy, this.terrain);
+    }
+
     // Teleport Spawn Animation (Animación de Teletransportación al desplegar unidad)
     playTeleportAnimation(wx: number, wy: number, color = 0x00f2fe) {
         if (!this.add) return;

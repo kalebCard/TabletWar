@@ -40,9 +40,10 @@ export function canUnitEmbark(
 export function isValidDeploymentPosition(
   faction: string,
   x: number,
-  terrainLayout: string
+  terrainLayout: string = "custom"
 ): { valid: boolean, errorMessage?: string } {
-  const gridWidth = terrainLayout === 'combat-patrol' ? 44 : 60
+  const layout = terrainLayout || "custom";
+  const gridWidth = layout === 'combat-patrol' ? 44 : 60
 
   if (faction === "imperium" && x > 10.5) {
     return { valid: false, errorMessage: "⚠️ ¡El Imperio debe desplegar dentro de su Zona de Despliegue! (Primeras 10\" en la izquierda del mapa)" }

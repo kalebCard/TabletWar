@@ -28,15 +28,26 @@ import { KeyboardShortcuts } from "@/components/ui/keyboard-shortcuts"
 
 export default function Page() {
   const actions = useGameActions()
-  const engine = actions; // For compatibility with components expecting engine props
-  
   const game = useGameStore(s => s.game)
   const rosterUnits = useGameStore(s => s.rosterUnits)
   const tokens = useGameStore(s => s.tokens)
+  const units = useGameStore(s => s.units)
   const terrainState = useGameStore(s => s.terrainState)
   
   const selectedIds = useUIStore(s => s.selectedIds)
   const deployingUnitId = useUIStore(s => s.deployingUnitId)
+  const combatQueue = useUIStore(s => s.combatQueue)
+  const microMoveMode = useUIStore(s => s.microMoveMode)
+
+  const engine = useMemo(() => ({
+    ...actions,
+    game,
+    tokens,
+    units,
+    rosterUnits,
+    combatQueue,
+    microMoveMode,
+  }), [actions, game, tokens, units, rosterUnits, combatQueue, microMoveMode]);
   
   const terrainLayout = game.terrainLayout
   const terrain = terrainState
@@ -64,9 +75,7 @@ export default function Page() {
     setUIState({ isMobileFloatingUnitOpen: false })
   }, [primarySelectedId])
 
-  const { handleSelectUnitToDeploy, handleDeployUnit } = useDeploymentLogic({ 
-    rosterUnits, deployUnit: actions.deployUnit, setDeployingUnitId: actions.setDeployingUnitId 
-  });
+  const { handleSelectUnitToDeploy, handleDeployUnit } = useDeploymentLogic(engine);
 
   const sidebar = game.phase === "deployment" ? (
     <div className="flex h-full flex-col">
